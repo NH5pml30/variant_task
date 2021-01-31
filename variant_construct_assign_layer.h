@@ -6,10 +6,46 @@ namespace variant_helper {
 template <class TList, typename = void> struct copy_construct_layer;
 
 template <class TList>
-struct copy_construct_layer<TList, std::enable_if_t<TList::template all_of<std::is_copy_constructible> &&
-                                                    !TList::template all_of<std::is_trivially_copy_constructible>>>
+constexpr inline bool is_copy_ctor_deleted =
+    !TList::template all_of<std::is_copy_constructible>;
+
+template <class TList>
+constexpr inline bool is_copy_ctor_trivial =
+    TList::template all_of<std::is_trivially_copy_constructible>;
+
+template <class TList>
+constexpr inline bool is_move_ctor_deleted =
+    !TList::template all_of<std::is_move_constructible>;
+
+template <class TList>
+constexpr inline bool is_move_ctor_trivial =
+    TList::template all_of<std::is_trivially_move_constructible>;
+
+template <class TList>
+constexpr inline bool is_copy_asgn_deleted =
+    !(TList::template all_of<std::is_copy_constructible> &&
+      TList::template all_of<std::is_copy_assignable>);
+
+template <class TList>
+constexpr inline bool is_copy_asgn_trivial =
+    TList::template all_of<std::is_trivially_copy_constructible> &&
+    TList::template all_of<std::is_trivially_copy_assignable> &&
+    TList::template all_of<std::is_trivially_destructible>;
+
+template <class TList>
+constexpr inline bool is_move_asgn_deleted =
+    !(TList::template all_of<std::is_move_constructible> &&
+      TList::template all_of<std::is_move_assignable>);
+
+template <class TList>
+constexpr inline bool is_move_asgn_trivial =
+    TList::template all_of<std::is_trivially_move_constructible> &&
+    TList::template all_of<std::is_trivially_move_assignable> &&
+    TList::template all_of<std::is_trivially_destructible>;
+
+template <class TList>
+struct copy_construct_layer<TList, std::enable_if_t<!is_copy_ctor_deleted<TList> && !is_copy_ctor_trivial<TList>>>
     : destroy_layer<TList> {
-  using base_t = destroy_layer<TList>;
   using destroy_layer<TList>::destroy_layer;
 
   constexpr copy_construct_layer(const copy_construct_layer &other) { this->init_from(other); }
@@ -19,10 +55,8 @@ struct copy_construct_layer<TList, std::enable_if_t<TList::template all_of<std::
 };
 
 template <class TList>
-struct copy_construct_layer<TList, std::enable_if_t<!TList::template all_of<std::is_copy_constructible> ||
-                                                    TList::template all_of<std::is_trivially_copy_constructible>>>
-    : destroy_layer<TList> {
-  using base_t = destroy_layer<TList>;
+struct copy_construct_layer<TList, std::enable_if_t<is_copy_ctor_deleted<TList> || is_copy_ctor_trivial<TList>>>
+    : destroy_layer<TList> { // deleted matches with union, meaning that =default <=> =delete in deleted case
   using destroy_layer<TList>::destroy_layer;
 
   constexpr copy_construct_layer(const copy_construct_layer &other) = default;
@@ -34,10 +68,8 @@ struct copy_construct_layer<TList, std::enable_if_t<!TList::template all_of<std:
 template <class TList, typename = void> struct move_construct_layer;
 
 template <class TList>
-struct move_construct_layer<TList, std::enable_if_t<TList::template all_of<std::is_move_constructible> &&
-                                                    !TList::template all_of<std::is_trivially_move_constructible>>>
+struct move_construct_layer<TList, std::enable_if_t<!is_move_ctor_deleted<TList> && !is_move_ctor_trivial<TList>>>
     : copy_construct_layer<TList> {
-  using base_t = copy_construct_layer<TList>;
   using copy_construct_layer<TList>::copy_construct_layer;
 
   constexpr move_construct_layer(const move_construct_layer &other) = default;
@@ -50,10 +82,8 @@ struct move_construct_layer<TList, std::enable_if_t<TList::template all_of<std::
 };
 
 template <class TList>
-struct move_construct_layer<TList, std::enable_if_t<!TList::template all_of<std::is_move_constructible> ||
-                                                    TList::template all_of<std::is_trivially_move_constructible>>>
-    : copy_construct_layer<TList> {
-  using base_t = copy_construct_layer<TList>;
+struct move_construct_layer<TList, std::enable_if_t<is_move_ctor_deleted<TList> || is_move_ctor_trivial<TList>>>
+    : copy_construct_layer<TList> { // deleted matches with union, meaning that =default <=> =delete in deleted case
   using copy_construct_layer<TList>::copy_construct_layer;
 
   constexpr move_construct_layer(const move_construct_layer &other) = default;
@@ -65,13 +95,8 @@ struct move_construct_layer<TList, std::enable_if_t<!TList::template all_of<std:
 template <class TList, typename = void> struct copy_assign_layer;
 
 template <class TList>
-struct copy_assign_layer<TList, std::enable_if_t<!(TList::template all_of<std::is_trivially_copy_constructible> &&
-                                                   TList::template all_of<std::is_trivially_copy_assignable> &&
-                                                   TList::template all_of<std::is_trivially_destructible>) &&
-                                                 TList::template all_of<std::is_copy_constructible> &&
-                                                 TList::template all_of<std::is_copy_assignable>>>
+struct copy_assign_layer<TList, std::enable_if_t<!is_copy_asgn_deleted<TList> && !is_copy_asgn_trivial<TList>>>
     : move_construct_layer<TList> {
-  using base_t = move_construct_layer<TList>;
   using move_construct_layer<TList>::move_construct_layer;
 
   constexpr copy_assign_layer(const copy_assign_layer &other) = default;
@@ -84,13 +109,8 @@ struct copy_assign_layer<TList, std::enable_if_t<!(TList::template all_of<std::i
 };
 
 template <class TList>
-struct copy_assign_layer<TList, std::enable_if_t<(TList::template all_of<std::is_trivially_copy_constructible> &&
-                                                  TList::template all_of<std::is_trivially_copy_assignable> &&
-                                                  TList::template all_of<std::is_trivially_destructible>) ||
-                                                 !(TList::template all_of<std::is_copy_constructible> &&
-                                                   TList::template all_of<std::is_copy_assignable>)>>
+struct copy_assign_layer<TList, std::enable_if_t<is_copy_asgn_trivial<TList>>>
     : move_construct_layer<TList> {
-  using base_t = move_construct_layer<TList>;
   using move_construct_layer<TList>::move_construct_layer;
 
   constexpr copy_assign_layer(const copy_assign_layer &other) = default;
@@ -99,14 +119,22 @@ struct copy_assign_layer<TList, std::enable_if_t<(TList::template all_of<std::is
   constexpr copy_assign_layer &operator=(copy_assign_layer &&other) = default;
 };
 
+template <class TList>
+struct copy_assign_layer<TList, std::enable_if_t<is_copy_asgn_deleted<TList>>>
+    : move_construct_layer<TList> {
+  using move_construct_layer<TList>::move_construct_layer;
+
+  constexpr copy_assign_layer(const copy_assign_layer &other) = default;
+  constexpr copy_assign_layer(copy_assign_layer &&other) = default;
+  constexpr copy_assign_layer &operator=(const copy_assign_layer &other) = delete;
+  constexpr copy_assign_layer &operator=(copy_assign_layer &&other) = default;
+};
+
 template <class TList, typename = void> struct move_assign_layer;
 
 template <class TList>
-struct move_assign_layer<TList, std::enable_if_t<TList::template all_of<std::is_move_assignable> &&
-                                                 TList::template all_of<std::is_move_constructible> &&
-                                                 !TList::template all_of<std::is_trivially_copyable>>>
+struct move_assign_layer<TList, std::enable_if_t<!is_move_asgn_deleted<TList> && !is_move_asgn_trivial<TList>>>
     : copy_assign_layer<TList> {
-  using base_t = copy_assign_layer<TList>;
   using copy_assign_layer<TList>::copy_assign_layer;
 
   constexpr move_assign_layer(const move_assign_layer &other) = default;
@@ -121,17 +149,25 @@ struct move_assign_layer<TList, std::enable_if_t<TList::template all_of<std::is_
 };
 
 template <class TList>
-struct move_assign_layer<TList, std::enable_if_t<TList::template all_of<std::is_trivially_copyable> ||
-                                                 !TList::template all_of<std::is_move_assignable> ||
-                                                 !TList::template all_of<std::is_move_constructible>>>
+struct move_assign_layer<TList, std::enable_if_t<is_move_asgn_trivial<TList>>>
     : copy_assign_layer<TList> {
-  using base_t = copy_assign_layer<TList>;
   using copy_assign_layer<TList>::copy_assign_layer;
 
   constexpr move_assign_layer(const move_assign_layer &other) = default;
   constexpr move_assign_layer(move_assign_layer &&other) = default;
   constexpr move_assign_layer &operator=(const move_assign_layer &other) = default;
   constexpr move_assign_layer &operator=(move_assign_layer &&other) = default;
+};
+
+template <class TList>
+struct move_assign_layer<TList, std::enable_if_t<is_move_asgn_deleted<TList>>>
+    : copy_assign_layer<TList> {
+  using copy_assign_layer<TList>::copy_assign_layer;
+
+  constexpr move_assign_layer(const move_assign_layer &other) = default;
+  constexpr move_assign_layer(move_assign_layer &&other) = default;
+  constexpr move_assign_layer &operator=(const move_assign_layer &other) = default;
+  constexpr move_assign_layer &operator=(move_assign_layer &&other) = delete;
 };
 
 template <class TList, typename = void> struct default_construct_layer;
